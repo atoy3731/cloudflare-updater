@@ -22,6 +22,7 @@ var (
 	CloudflareZone   string
 	CloudflareRecord string
 	CloudflareToken  string
+	CloudflareDnsTTL int
 	IpUrl            string
 	IntervalMins     int
 )
@@ -48,19 +49,19 @@ func init() {
 	if os.Getenv("CLOUDFLARE_ZONE") == "" {
 		missingEnvs = append(missingEnvs, "CLOUDFLARE_ZONE")
 	} else {
-		CloudflareZone = os.Getenv("CLOUDFLARE_ZONE")
+		CloudflareZone = string(os.Getenv("CLOUDFLARE_ZONE"))
 	}
 
 	if os.Getenv("CLOUDFLARE_RECORD") == "" {
 		missingEnvs = append(missingEnvs, "CLOUDFLARE_RECORD")
 	} else {
-		CloudflareRecord = os.Getenv("CLOUDFLARE_RECORD")
+		CloudflareRecord = string(os.Getenv("CLOUDFLARE_RECORD"))
 	}
 
 	if os.Getenv("CLOUDFLARE_TOKEN") == "" {
 		missingEnvs = append(missingEnvs, "CLOUDFLARE_TOKEN")
 	} else {
-		CloudflareToken = os.Getenv("CLOUDFLARE_TOKEN")
+		CloudflareToken = string(os.Getenv("CLOUDFLARE_TOKEN"))
 	}
 
 	if len(missingEnvs) > 0 {
@@ -70,7 +71,7 @@ func init() {
 	if os.Getenv("IP_URL") == "" {
 		IpUrl = "https://checkip.amazonaws.com"
 	} else {
-		IpUrl = os.Getenv("IP_URL")
+		IpUrl = string(os.Getenv("IP_URL"))
 	}
 
 	if os.Getenv("INTERVAL_MINS") == "" {
@@ -80,6 +81,16 @@ func init() {
 		if err != nil {
 			ErrorLogger.Println(fmt.Sprintf("Invalid interval '%s'. Defaulting to '5'", os.Getenv("INTERVAL_MINS")))
 			IntervalMins = 5
+		}
+	}
+
+	if os.Getenv("CLOUDFLARE_DNS_TTL") == "" {
+		CloudflareDnsTTL = 5
+	} else {
+		CloudflareDnsTTL, err = strconv.Atoi(os.Getenv("CLOUDFLARE_DNS_TTL"))
+		if err != nil {
+			ErrorLogger.Println(fmt.Sprintf("Invalid TTL '%s'. Defaulting to '1'", os.Getenv("CLOUDFLARE_DNS_TTL")))
+			CloudflareDnsTTL = 1
 		}
 	}
 
@@ -117,8 +128,8 @@ func createIpFile() error {
 }
 
 func getIp() []byte {
-	DebugLogger.Println(fmt.Sprintf("Getting IP from '%s'", os.Getenv("IP_URL")))
-	resp, err := http.Get(os.Getenv("IP_URL"))
+	DebugLogger.Println(fmt.Sprintf("Getting IP from '%s'", IpUrl))
+	resp, err := http.Get(IpUrl)
 	if err != nil {
 		log.Fatalln(err)
 	}
@@ -151,7 +162,7 @@ func isIpChanged(current_ip []byte) bool {
 }
 
 func addAuthHeader(req *http.Request) {
-	header := fmt.Sprintf("Bearer %s", os.Getenv("CLOUDFLARE_TOKEN"))
+	header := fmt.Sprintf("Bearer %s", CloudflareToken)
 	req.Header.Add("Authorization", header)
 }
 
@@ -159,12 +170,12 @@ func updateCloudflare(current_ip []byte) {
 	client := &http.Client{}
 
 	// Get Zone ID
-	var url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones?name=%s&status=active", string(os.Getenv("CLOUDFLARE_ZONE")))
+	var url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones?name=%s&status=active", CloudflareZone)
 	var req, _ = http.NewRequest("GET", url, nil)
 
 	addAuthHeader(req)
 
-	DebugLogger.Println(fmt.Sprintf("Getting Zone ID for '%s'", os.Getenv("CLOUDFLARE_ZONE")))
+	DebugLogger.Println(fmt.Sprintf("Getting Zone ID for '%s'", CloudflareZone))
 	var resp, resp_err = client.Do(req)
 	if resp_err != nil {
 		log.Fatalln(resp_err)
@@ -183,14 +194,14 @@ func updateCloudflare(current_ip []byte) {
 	var body, _ = io.ReadAll(resp.Body)
 	json.Unmarshal(body, &cfResp)
 	zoneId := cfResp.Result[0].Id
-	DebugLogger.Println(fmt.Sprintf("Zone ID for '%s' is '%s'", os.Getenv("CLOUDFLARE_ZONE"), zoneId))
+	DebugLogger.Println(fmt.Sprintf("Zone ID for '%s' is '%s'", CloudflareZone, zoneId))
 
 	// Get Record ID
-	url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records?type=A&name=%s", string(zoneId), string(os.Getenv("CLOUDFLARE_RECORD")))
+	url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records?type=A&name=%s", string(zoneId), CloudflareRecord)
 	req, _ = http.NewRequest("GET", url, nil)
 	addAuthHeader(req)
 
-	DebugLogger.Println(fmt.Sprintf("Getting Record ID for '%s'", os.Getenv("CLOUDFLARE_RECORD")))
+	DebugLogger.Println(fmt.Sprintf("Getting Record ID for '%s'", CloudflareRecord))
 	resp, resp_err = client.Do(req)
 	if resp_err != nil {
 		log.Fatalln(resp_err)
@@ -208,14 +219,14 @@ func updateCloudflare(current_ip []byte) {
 	body, _ = io.ReadAll(resp.Body)
 	json.Unmarshal(body, &cfResp)
 	recordId := cfResp.Result[0].Id
-	DebugLogger.Println(fmt.Sprintf("Record ID for '%s' is '%s'", os.Getenv("CLOUDFLARE_RECORD"), recordId))
+	DebugLogger.Println(fmt.Sprintf("Record ID for '%s' is '%s'", CloudflareRecord, recordId))
 
 	// Update record
 	var cfReq = CFRequest{}
 	cfReq.Type = "A"
-	cfReq.Name = os.Getenv("CLOUDFLARE_RECORD")
+	cfReq.Name = CloudflareRecord
 	cfReq.Content = strings.TrimSpace(string(current_ip))
-	cfReq.TTL, _ = strconv.Atoi(os.Getenv("CLOUDFLARE_DNS_TTL"))
+	cfReq.TTL, _ = CloudflareDnsTTL
 	cfReq.Proxied = false
 
 	cfReqJson, _ := json.Marshal(cfReq)
@@ -225,7 +236,7 @@ func updateCloudflare(current_ip []byte) {
 	addAuthHeader(req)
 	req.Header.Add("Content-type", "application/json")
 
-	DebugLogger.Println(fmt.Sprintf("Updating DNS record for '%s'", os.Getenv("CLOUDFLARE_RECORD")))
+	DebugLogger.Println(fmt.Sprintf("Updating DNS record for '%s'", CloudflareRecord))
 	resp, resp_err = client.Do(req)
 	if resp_err != nil {
 		log.Fatalln(resp_err)
@@ -238,7 +249,7 @@ func updateCloudflare(current_ip []byte) {
 		return
 	}
 
-	InfoLogger.Println(fmt.Sprintf("DNS Updated (%s -> %s)", os.Getenv("CLOUDFLARE_RECORD"), strings.TrimSpace(string(string(current_ip)))))
+	InfoLogger.Println(fmt.Sprintf("DNS Updated (%s -> %s)", CloudflareRecord, strings.TrimSpace(string(string(current_ip)))))
 
 }
 
