@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: cloudflare-updater-config
-  namespace: cloudflare-updater
-data:
-  CLOUDFLARE_ZONE: "atoy.dev"
-  CLOUDFLARE_RECORD: "*.atoy.dev"
-  IP_FILE: "/tmp/ip"
