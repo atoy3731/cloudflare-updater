@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflare-updater
+  namespace: cloudflare-updater
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: cloudflare-updater
+  template:
+    metadata:
+      labels:
+        app: cloudflare-updater
+    spec:
+      containers:
+      - name: cloudflare-updater
+        image: atoy3731/cloudflare-updater:1.0
+        envFrom:
+        - configMapRef:
+            name: cloudflare-updater-config
+        - secretRef:
+            name: cloudflare-updater-secret
+        imagePullPolicy: Always

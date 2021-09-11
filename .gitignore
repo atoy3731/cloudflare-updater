@@ -1,0 +1,7 @@
+secret.yaml
+configmap.yaml
+docker-compose.yaml
+venv/
+*.pyc
+.idea/
+*.iml

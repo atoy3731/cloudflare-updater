@@ -1,0 +1,16 @@
+version: "3.9"
+services:
+  cloudflare-updater:
+    container_name: cloudflare-updater
+    hostname: cloudflare-update
+    image: atoy3731/cloudflare-updater:1.0
+    environment:
+      # Required ENVs
+      CLOUDFLARE_ZONE: example.com
+      CLOUDFLARE_RECORD: www.example.com
+      CLOUDFLARE_TOKEN: abcdef12345
+
+      # Optional ENVs
+      # LOG_LEVEL: info
+      # INTERVAL_MINS: 5
+      # IP_URL: https://checkip.amazonaws.com/
