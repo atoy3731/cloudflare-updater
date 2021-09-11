@@ -1,3 +1,7 @@
+docker-compose.yaml
+secret.yaml
+configmap.yaml
+
 # Binaries for programs and plugins
 *.exe
 *.exe~
