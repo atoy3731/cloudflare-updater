@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -24,6 +23,7 @@ var (
 	CloudflareToken  string
 	CloudflareDnsTTL int
 	IpUrl            string
+	ExistingIp       []byte
 	IntervalMins     int
 )
 
@@ -45,23 +45,25 @@ func init() {
 	var missingEnvs []string
 	var err error
 
+	ExistingIp = []byte("N/A")
+
 	// Validate environment variables
 	if os.Getenv("CLOUDFLARE_ZONE") == "" {
 		missingEnvs = append(missingEnvs, "CLOUDFLARE_ZONE")
 	} else {
-		CloudflareZone = string(os.Getenv("CLOUDFLARE_ZONE"))
+		CloudflareZone = strings.TrimSpace(string(os.Getenv("CLOUDFLARE_ZONE")))
 	}
 
 	if os.Getenv("CLOUDFLARE_RECORD") == "" {
 		missingEnvs = append(missingEnvs, "CLOUDFLARE_RECORD")
 	} else {
-		CloudflareRecord = string(os.Getenv("CLOUDFLARE_RECORD"))
+		CloudflareRecord = strings.TrimSpace(string(os.Getenv("CLOUDFLARE_RECORD")))
 	}
 
 	if os.Getenv("CLOUDFLARE_TOKEN") == "" {
 		missingEnvs = append(missingEnvs, "CLOUDFLARE_TOKEN")
 	} else {
-		CloudflareToken = string(os.Getenv("CLOUDFLARE_TOKEN"))
+		CloudflareToken = strings.TrimSpace(string(os.Getenv("CLOUDFLARE_TOKEN")))
 	}
 
 	if len(missingEnvs) > 0 {
@@ -71,7 +73,7 @@ func init() {
 	if os.Getenv("IP_URL") == "" {
 		IpUrl = "https://checkip.amazonaws.com"
 	} else {
-		IpUrl = string(os.Getenv("IP_URL"))
+		IpUrl = strings.TrimSpace(string(os.Getenv("IP_URL")))
 	}
 
 	if os.Getenv("INTERVAL_MINS") == "" {
@@ -85,7 +87,7 @@ func init() {
 	}
 
 	if os.Getenv("CLOUDFLARE_DNS_TTL") == "" {
-		CloudflareDnsTTL = 5
+		CloudflareDnsTTL = 1
 	} else {
 		CloudflareDnsTTL, err = strconv.Atoi(os.Getenv("CLOUDFLARE_DNS_TTL"))
 		if err != nil {
@@ -118,15 +120,6 @@ func check(e error) {
 	}
 }
 
-func createIpFile() error {
-	DebugLogger.Println("Creating IP file if it doesn't exist")
-	file, err := os.OpenFile("/tmp/ip", os.O_RDONLY|os.O_CREATE, 0755)
-	if err != nil {
-		return err
-	}
-	return file.Close()
-}
-
 func getIp() []byte {
 	DebugLogger.Println(fmt.Sprintf("Getting IP from '%s'", IpUrl))
 	resp, err := http.Get(IpUrl)
@@ -137,22 +130,11 @@ func getIp() []byte {
 	body, err := io.ReadAll(resp.Body)
 	DebugLogger.Println(fmt.Sprintf("Acquired IP: %s", strings.TrimSpace(string(body))))
 	return body
-
 }
 
 func isIpChanged(current_ip []byte) bool {
-	var existing_ip, err = ioutil.ReadFile("/tmp/ip")
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	if strings.TrimSpace(string(existing_ip)) == "" {
-		existing_ip = []byte("N/A")
-	}
-
-	if string(existing_ip) != string(current_ip) {
-		InfoLogger.Println(fmt.Sprintf("Updating IP (%s -> %s)", strings.TrimSpace(string(existing_ip)), strings.TrimSpace(string(current_ip))))
-		ioutil.WriteFile("/tmp/ip", current_ip, 'w')
+	if string(ExistingIp) != string(current_ip) {
+		InfoLogger.Println(fmt.Sprintf("Updating IP (%s -> %s)", strings.TrimSpace(string(ExistingIp)), strings.TrimSpace(string(current_ip))))
 		return true
 	} else {
 		DebugLogger.Println(fmt.Sprintf("IP (%s) hasn't changed. No update required.", strings.TrimSpace(string(current_ip))))
@@ -185,6 +167,8 @@ func updateCloudflare(current_ip []byte) {
 		return
 	} else if resp.StatusCode != 200 {
 		log.Fatalln("[ERROR] Issue contacting Cloudflare")
+		b, _ := io.ReadAll(resp.Body)
+		ErrorLogger.Println(fmt.Sprintf("  -> Body: %s", string(b)))
 		return
 	}
 
@@ -211,6 +195,8 @@ func updateCloudflare(current_ip []byte) {
 		return
 	} else if resp.StatusCode != 200 {
 		log.Fatalln("[ERROR] Issue contacting Cloudflare")
+		b, _ := io.ReadAll(resp.Body)
+		ErrorLogger.Println(fmt.Sprintf("  -> Body: %s", string(b)))
 		return
 	}
 	cfResp = CFResponse{}
@@ -226,13 +212,12 @@ func updateCloudflare(current_ip []byte) {
 	cfReq.Type = "A"
 	cfReq.Name = CloudflareRecord
 	cfReq.Content = strings.TrimSpace(string(current_ip))
-	cfReq.TTL, _ = CloudflareDnsTTL
+	cfReq.TTL = CloudflareDnsTTL
 	cfReq.Proxied = false
 
 	cfReqJson, _ := json.Marshal(cfReq)
-	// Get Record ID
 	url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", string(zoneId), string(recordId))
-	req, _ = http.NewRequest("PUT", url, bytes.NewBuffer(cfReqJson))
+	req, _ = http.NewRequest("PUT", url, bytes.NewBuffer([]byte(cfReqJson)))
 	addAuthHeader(req)
 	req.Header.Add("Content-type", "application/json")
 
@@ -246,6 +231,8 @@ func updateCloudflare(current_ip []byte) {
 		return
 	} else if resp.StatusCode != 200 {
 		ErrorLogger.Fatalln("[ERROR] Issue contacting Cloudflare")
+		b, _ := io.ReadAll(resp.Body)
+		ErrorLogger.Println(fmt.Sprintf("  -> Body: %s", string(b)))
 		return
 	}
 
@@ -256,8 +243,6 @@ func updateCloudflare(current_ip []byte) {
 func main() {
 	InfoLogger.Println(fmt.Sprintf("Running every %d minutes", IntervalMins))
 	InfoLogger.Println(fmt.Sprintf("Current IP: %s", strings.TrimSpace(string(getIp()))))
-
-	createIpFile()
 
 	for true {
 		current_ip := getIp()
