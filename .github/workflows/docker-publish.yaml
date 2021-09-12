@@ -35,7 +35,7 @@ jobs:
           PRIVATE_DOCKER_REGISTRY:  ${{ secrets.PRIVATE_DOCKER_REGISTRY }}
         run: |
           echo "$DOCKER_PASSWORD" | docker login -u $DOCKER_USER --password-stdin
-          echo "$PRIVATE_DOCKER_PASSWORD" | docker logs -u $PRIVATE_DOCKER_USER --password-stdin $PRIVATE_DOCKER_REGISTRY
+          echo "$PRIVATE_DOCKER_PASSWORD" | docker login -u $PRIVATE_DOCKER_USER --password-stdin $PRIVATE_DOCKER_REGISTRY
 
       - name: Prepare
         env:
