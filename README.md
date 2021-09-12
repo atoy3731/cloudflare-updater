@@ -39,6 +39,6 @@ This script uses the following environment variables for configurations.
     cp secret.yaml.example secret.yaml
     cp configmap.yaml.example configmap.yaml
     ```
-3. Update `secret.yaml` and `configmap.yaml` to you specific values.
+3. Update `secret.yaml` and `configmap.yaml` to your specific values.
 4. Ensure you're pointing at the right Kubernetes cluster: `kubectl cluster-info`
 5. Apply the manifests: `kubectl apply -f .`
