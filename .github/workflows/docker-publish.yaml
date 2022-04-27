@@ -5,8 +5,8 @@ on:
     branches:
       - main
   workflow_dispatch:
-      tags:
-        description: 'Manual Run'
+    branches:
+      - main
 
 env:
   IMAGE_NAME: atoy3731/cloudflare-updater
