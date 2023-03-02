@@ -204,24 +204,42 @@ func updateCloudflare(current_ip []byte) {
 	defer resp.Body.Close()
 	body, _ = io.ReadAll(resp.Body)
 	json.Unmarshal(body, &cfResp)
-	recordId := cfResp.Result[0].Id
-	DebugLogger.Println(fmt.Sprintf("Record ID for '%s' is '%s'", CloudflareRecord, recordId))
 
-	// Update record
-	var cfReq = CFRequest{}
-	cfReq.Type = "A"
-	cfReq.Name = CloudflareRecord
-	cfReq.Content = strings.TrimSpace(string(current_ip))
-	cfReq.TTL = CloudflareDnsTTL
-	cfReq.Proxied = false
+	if len(cfResp.Result) == 0 {
+		DebugLogger.Println(fmt.Sprintf("No Record ID Found for '%s'. Creating new record.", CloudflareRecord))
+		var cfReq = CFRequest{}
+		cfReq.Type = "A"
+		cfReq.Name = CloudflareRecord
+		cfReq.Content = strings.TrimSpace(string(current_ip))
+		cfReq.TTL = CloudflareDnsTTL
+		cfReq.Proxied = false
 
-	cfReqJson, _ := json.Marshal(cfReq)
-	url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", string(zoneId), string(recordId))
-	req, _ = http.NewRequest("PUT", url, bytes.NewBuffer([]byte(cfReqJson)))
-	addAuthHeader(req)
-	req.Header.Add("Content-type", "application/json")
+		cfReqJson, _ := json.Marshal(cfReq)
+		url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", string(zoneId))
+		req, _ = http.NewRequest("POST", url, bytes.NewBuffer([]byte(cfReqJson)))
+		addAuthHeader(req)
+		req.Header.Add("Content-type", "application/json")
 
-	DebugLogger.Println(fmt.Sprintf("Updating DNS record for '%s'", CloudflareRecord))
+	} else {
+		recordId := cfResp.Result[0].Id
+		DebugLogger.Println(fmt.Sprintf("Record ID for '%s' is '%s'", CloudflareRecord, recordId))
+
+		// Update record
+		var cfReq = CFRequest{}
+		cfReq.Type = "A"
+		cfReq.Name = CloudflareRecord
+		cfReq.Content = strings.TrimSpace(string(current_ip))
+		cfReq.TTL = CloudflareDnsTTL
+		cfReq.Proxied = false
+
+		cfReqJson, _ := json.Marshal(cfReq)
+		url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", string(zoneId), string(recordId))
+		req, _ = http.NewRequest("PUT", url, bytes.NewBuffer([]byte(cfReqJson)))
+		addAuthHeader(req)
+		req.Header.Add("Content-type", "application/json")
+	}
+
+	DebugLogger.Println(fmt.Sprintf("Creating/Updating DNS record for '%s'", CloudflareRecord))
 	resp, resp_err = client.Do(req)
 	if resp_err != nil {
 		log.Fatalln(resp_err)
