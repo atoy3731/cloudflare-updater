@@ -33,12 +33,8 @@ jobs:
         env:
           DOCKER_USER: ${{ secrets.DOCKER_USER }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          PRIVATE_DOCKER_USER: ${{ secrets.PRIVATE_DOCKER_USER }}
-          PRIVATE_DOCKER_PASSWORD: ${{ secrets.PRIVATE_DOCKER_PASSWORD }}
-          PRIVATE_DOCKER_REGISTRY:  ${{ secrets.PRIVATE_DOCKER_REGISTRY }}
         run: |
           echo "$DOCKER_PASSWORD" | docker login -u $DOCKER_USER --password-stdin
-          echo "$PRIVATE_DOCKER_PASSWORD" | docker login -u $PRIVATE_DOCKER_USER --password-stdin $PRIVATE_DOCKER_REGISTRY
 
       - name: Prepare
         env:
@@ -47,7 +43,7 @@ jobs:
         run: |
           VERSION=$(cat VERSION)
 
-          TAGS="${IMAGE_NAME}:${VERSION},${IMAGE_NAME}:latest,${PRIVATE_DOCKER_IMAGE_NAME}:${VERSION},${PRIVATE_DOCKER_IMAGE_NAME}:latest"
+          TAGS="${IMAGE_NAME}:${VERSION},${IMAGE_NAME}:latest"
 
           # Set output parameters.
           echo ::set-output name=tags::${TAGS}
