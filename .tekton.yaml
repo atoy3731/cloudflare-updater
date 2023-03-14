@@ -1,0 +1,6 @@
+docker:
+  build_path: "."
+  image:
+    registry: harbor.atoy.dev
+    name: public/cloudflare-updater
+    tag: "1.1"
