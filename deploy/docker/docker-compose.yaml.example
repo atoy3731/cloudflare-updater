@@ -3,7 +3,7 @@ services:
   cloudflare-updater:
     container_name: cloudflare-updater
     hostname: cloudflare-update
-    image: atoy3731/cloudflare-updater:1.0
+    image: atoy3731/cloudflare-updater:1.2
     environment:
       # Required ENVs
       CLOUDFLARE_ZONE: example.com

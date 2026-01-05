@@ -18,13 +18,14 @@ var (
 	InfoLogger  *log.Logger
 	ErrorLogger *log.Logger
 
-	CloudflareZone   string
-	CloudflareRecord string
-	CloudflareToken  string
-	CloudflareDnsTTL int
-	IpUrl            string
-	ExistingIp       []byte
-	IntervalMins     int
+	CloudflareZone    string
+	CloudflareRecord  string
+	CloudflareRecords []string
+	CloudflareToken   string
+	CloudflareDnsTTL  int
+	IpUrl             string
+	ExistingIp        []byte
+	IntervalMins      int
 )
 
 func init() {
@@ -54,10 +55,15 @@ func init() {
 		CloudflareZone = strings.TrimSpace(string(os.Getenv("CLOUDFLARE_ZONE")))
 	}
 
-	if os.Getenv("CLOUDFLARE_RECORD") == "" {
-		missingEnvs = append(missingEnvs, "CLOUDFLARE_RECORD")
+	if os.Getenv("CLOUDFLARE_RECORDS") == "" {
+		if os.Getenv("CLOUDFLARE_RECORD") == "" {
+			missingEnvs = append(missingEnvs, "CLOUDFLARE_RECORD")
+			missingEnvs = append(missingEnvs, "CLOUDFLARE_RECORDS")
+		} else {
+			CloudflareRecords = []string{strings.TrimSpace(string(os.Getenv("CLOUDFLARE_RECORD")))}
+		}
 	} else {
-		CloudflareRecord = strings.TrimSpace(string(os.Getenv("CLOUDFLARE_RECORD")))
+		CloudflareRecords = strings.Split(strings.TrimSpace(string(os.Getenv("CLOUDFLARE_RECORDS"))), ",")
 	}
 
 	if os.Getenv("CLOUDFLARE_TOKEN") == "" {
@@ -180,82 +186,83 @@ func updateCloudflare(current_ip []byte) {
 	zoneId := cfResp.Result[0].Id
 	DebugLogger.Println(fmt.Sprintf("Zone ID for '%s' is '%s'", CloudflareZone, zoneId))
 
-	// Get Record ID
-	url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records?type=A&name=%s", string(zoneId), CloudflareRecord)
-	req, _ = http.NewRequest("GET", url, nil)
-	addAuthHeader(req)
-
-	DebugLogger.Println(fmt.Sprintf("Getting Record ID for '%s'", CloudflareRecord))
-	resp, resp_err = client.Do(req)
-	if resp_err != nil {
-		log.Fatalln(resp_err)
-		return
-	} else if resp.StatusCode == 403 {
-		log.Fatalln("[ERROR] Unauthorized. Check your Cloudflare token!")
-		return
-	} else if resp.StatusCode != 200 {
-		log.Fatalln("[ERROR] Issue contacting Cloudflare")
-		b, _ := io.ReadAll(resp.Body)
-		ErrorLogger.Println(fmt.Sprintf("  -> Body: %s", string(b)))
-		return
-	}
-	cfResp = CFResponse{}
-
-	defer resp.Body.Close()
-	body, _ = io.ReadAll(resp.Body)
-	json.Unmarshal(body, &cfResp)
-
-	if len(cfResp.Result) == 0 {
-		DebugLogger.Println(fmt.Sprintf("No Record ID Found for '%s'. Creating new record.", CloudflareRecord))
-		var cfReq = CFRequest{}
-		cfReq.Type = "A"
-		cfReq.Name = CloudflareRecord
-		cfReq.Content = strings.TrimSpace(string(current_ip))
-		cfReq.TTL = CloudflareDnsTTL
-		cfReq.Proxied = false
-
-		cfReqJson, _ := json.Marshal(cfReq)
-		url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", string(zoneId))
-		req, _ = http.NewRequest("POST", url, bytes.NewBuffer([]byte(cfReqJson)))
+	for _, cfRecord := range CloudflareRecords {
+		// Get Record ID
+		url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records?type=A&name=%s", string(zoneId), cfRecord)
+		req, _ = http.NewRequest("GET", url, nil)
 		addAuthHeader(req)
-		req.Header.Add("Content-type", "application/json")
 
-	} else {
-		recordId := cfResp.Result[0].Id
-		DebugLogger.Println(fmt.Sprintf("Record ID for '%s' is '%s'", CloudflareRecord, recordId))
+		DebugLogger.Println(fmt.Sprintf("Getting Record ID for '%s'", cfRecord))
+		resp, resp_err = client.Do(req)
+		if resp_err != nil {
+			log.Fatalln(resp_err)
+			return
+		} else if resp.StatusCode == 403 {
+			log.Fatalln("[ERROR] Unauthorized. Check your Cloudflare token!")
+			return
+		} else if resp.StatusCode != 200 {
+			log.Fatalln("[ERROR] Issue contacting Cloudflare")
+			b, _ := io.ReadAll(resp.Body)
+			ErrorLogger.Println(fmt.Sprintf("  -> Body: %s", string(b)))
+			return
+		}
+		cfResp = CFResponse{}
 
-		// Update record
-		var cfReq = CFRequest{}
-		cfReq.Type = "A"
-		cfReq.Name = CloudflareRecord
-		cfReq.Content = strings.TrimSpace(string(current_ip))
-		cfReq.TTL = CloudflareDnsTTL
-		cfReq.Proxied = false
+		defer resp.Body.Close()
+		body, _ = io.ReadAll(resp.Body)
+		json.Unmarshal(body, &cfResp)
 
-		cfReqJson, _ := json.Marshal(cfReq)
-		url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", string(zoneId), string(recordId))
-		req, _ = http.NewRequest("PUT", url, bytes.NewBuffer([]byte(cfReqJson)))
-		addAuthHeader(req)
-		req.Header.Add("Content-type", "application/json")
+		if len(cfResp.Result) == 0 {
+			DebugLogger.Println(fmt.Sprintf("No Record ID Found for '%s'. Creating new record.", cfRecord))
+			var cfReq = CFRequest{}
+			cfReq.Type = "A"
+			cfReq.Name = cfRecord
+			cfReq.Content = strings.TrimSpace(string(current_ip))
+			cfReq.TTL = CloudflareDnsTTL
+			cfReq.Proxied = false
+
+			cfReqJson, _ := json.Marshal(cfReq)
+			url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", string(zoneId))
+			req, _ = http.NewRequest("POST", url, bytes.NewBuffer([]byte(cfReqJson)))
+			addAuthHeader(req)
+			req.Header.Add("Content-type", "application/json")
+
+		} else {
+			recordId := cfResp.Result[0].Id
+			DebugLogger.Println(fmt.Sprintf("Record ID for '%s' is '%s'", cfRecord, recordId))
+
+			// Update record
+			var cfReq = CFRequest{}
+			cfReq.Type = "A"
+			cfReq.Name = cfRecord
+			cfReq.Content = strings.TrimSpace(string(current_ip))
+			cfReq.TTL = CloudflareDnsTTL
+			cfReq.Proxied = false
+
+			cfReqJson, _ := json.Marshal(cfReq)
+			url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", string(zoneId), string(recordId))
+			req, _ = http.NewRequest("PUT", url, bytes.NewBuffer([]byte(cfReqJson)))
+			addAuthHeader(req)
+			req.Header.Add("Content-type", "application/json")
+		}
+
+		DebugLogger.Println(fmt.Sprintf("Creating/Updating DNS record for '%s'", cfRecord))
+		resp, resp_err = client.Do(req)
+		if resp_err != nil {
+			log.Fatalln(resp_err)
+			return
+		} else if resp.StatusCode == 403 {
+			ErrorLogger.Fatalln("[ERROR] Unauthorized. Check your Cloudflare token!")
+			return
+		} else if resp.StatusCode != 200 {
+			ErrorLogger.Fatalln("[ERROR] Issue contacting Cloudflare")
+			b, _ := io.ReadAll(resp.Body)
+			ErrorLogger.Println(fmt.Sprintf("  -> Body: %s", string(b)))
+			return
+		}
+
+		InfoLogger.Println(fmt.Sprintf("DNS Updated (%s -> %s)", cfRecord, strings.TrimSpace(string(string(current_ip)))))
 	}
-
-	DebugLogger.Println(fmt.Sprintf("Creating/Updating DNS record for '%s'", CloudflareRecord))
-	resp, resp_err = client.Do(req)
-	if resp_err != nil {
-		log.Fatalln(resp_err)
-		return
-	} else if resp.StatusCode == 403 {
-		ErrorLogger.Fatalln("[ERROR] Unauthorized. Check your Cloudflare token!")
-		return
-	} else if resp.StatusCode != 200 {
-		ErrorLogger.Fatalln("[ERROR] Issue contacting Cloudflare")
-		b, _ := io.ReadAll(resp.Body)
-		ErrorLogger.Println(fmt.Sprintf("  -> Body: %s", string(b)))
-		return
-	}
-
-	InfoLogger.Println(fmt.Sprintf("DNS Updated (%s -> %s)", CloudflareRecord, strings.TrimSpace(string(string(current_ip)))))
-
 }
 
 func main() {
