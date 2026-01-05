@@ -1,3 +1,3 @@
 module github.com/atoy3731/cloudflare-updater
 
-go 1.16
+go 1.25

@@ -18,7 +18,8 @@ This script uses the following environment variables for configurations.
 |-----------------------|-------------|---------|----------|
 | CLOUDFLARE_TOKEN      | The API token for interacting with Cloudflare. | AbCdEf12345 | Yes |
 | CLOUDFLARE_ZONE      | The Cloudflare zone you want to update. | example.com | Yes |
-| CLOUDFLARE_RECORD      | The Cloudflare record you want to update | *.example.com | Yes |
+| CLOUDFLARE_RECORDS      | Comma-separated list of the Cloudflare records you want to update | foo.example.com,bar.example.com | Yes |
+| CLOUDFLARE_RECORD (Deprecated)      | The Cloudflare record you want to update | *.example.com | No (Required if no CLOUDFLARE_RECORDS exists) |
 | CLOUDFLARE_DNS_TTL | The TTL (in minutes) for the DNS entry. | 1 | No |
 | INTERVAL_MINS | The interval (in minutes) you want the updater to run. | 5 | No |
 | IP_URL | URL to acquire your public IP. Must return IP in plain-text. | https://checkip.amazonaws.com/ | No |
