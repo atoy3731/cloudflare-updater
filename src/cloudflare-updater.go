@@ -34,8 +34,7 @@ func init() {
 	if os.Getenv("LOG_LEVEL") == "debug" {
 		DebugLogger = log.New(os.Stdout, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
 	} else {
-		file, _ := os.OpenFile("/dev/null", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0666)
-		DebugLogger = log.New(file, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
+		DebugLogger = log.New(io.Discard, "DEBUG: ", log.Ldate|log.Ltime|log.Lshortfile)
 	}
 
 	InfoLogger.Println("=========================")
@@ -74,7 +73,7 @@ func init() {
 	}
 
 	if len(missingEnvs) > 0 {
-		ErrorLogger.Fatalln(fmt.Sprintf("Missing required ENVs: %s", strings.Join(missingEnvs, ",")))
+		ErrorLogger.Fatalf("Missing required ENVs: %s", strings.Join(missingEnvs, ","))
 	}
 
 	if os.Getenv("IP_URL") == "" {
@@ -94,7 +93,7 @@ func init() {
 	} else {
 		IntervalMins, err = strconv.Atoi(os.Getenv("INTERVAL_MINS"))
 		if err != nil {
-			ErrorLogger.Println(fmt.Sprintf("Invalid interval '%s'. Defaulting to '5'", os.Getenv("INTERVAL_MINS")))
+			ErrorLogger.Printf("Invalid interval '%s'. Defaulting to '5'", os.Getenv("INTERVAL_MINS"))
 			IntervalMins = 5
 		}
 	}
@@ -104,7 +103,7 @@ func init() {
 	} else {
 		CloudflareDnsTTL, err = strconv.Atoi(os.Getenv("CLOUDFLARE_DNS_TTL"))
 		if err != nil {
-			ErrorLogger.Println(fmt.Sprintf("Invalid TTL '%s'. Defaulting to '1'", os.Getenv("CLOUDFLARE_DNS_TTL")))
+			ErrorLogger.Printf("Invalid TTL '%s'. Defaulting to '1'", os.Getenv("CLOUDFLARE_DNS_TTL"))
 			CloudflareDnsTTL = 1
 		}
 	}
@@ -127,12 +126,12 @@ type CFResponse struct {
 }
 
 func getIp() (string, error) {
-	DebugLogger.Println(fmt.Sprintf("Getting IP from '%s'", IpUrl))
+	DebugLogger.Printf("Getting IP from '%s'", IpUrl)
 	resp, err := http.Get(IpUrl)
 	if err != nil {
 		return "", fmt.Errorf("failed to get IP: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -140,33 +139,33 @@ func getIp() (string, error) {
 	}
 
 	ip := strings.TrimSpace(string(body))
-	DebugLogger.Println(fmt.Sprintf("Acquired IP: %s", ip))
+	DebugLogger.Printf("Acquired IP: %s", ip)
 	return ip, nil
 }
 
 func isIpChanged(currentIp string) bool {
 	existingIp := ""
 	if _, err := os.Stat(IpFile); err == nil {
-		DebugLogger.Println(fmt.Sprintf("Reading existing IP from '%s'", IpFile))
+		DebugLogger.Printf("Reading existing IP from '%s'", IpFile)
 		data, err := os.ReadFile(IpFile)
 		if err != nil {
-			ErrorLogger.Println(fmt.Sprintf("Failed to read IP file: %v", err))
+			ErrorLogger.Printf("Failed to read IP file: %v", err)
 			return true // Assume changed if we can't read
 		}
 		existingIp = strings.TrimSpace(string(data))
 	} else {
-		DebugLogger.Println(fmt.Sprintf("No existing IP file found at '%s'", IpFile))
+		DebugLogger.Printf("No existing IP file found at '%s'", IpFile)
 	}
 
 	if existingIp != currentIp {
-		InfoLogger.Println(fmt.Sprintf("Updating IP (%s -> %s)", existingIp, currentIp))
+		InfoLogger.Printf("Updating IP (%s -> %s)", existingIp, currentIp)
 		if err := os.WriteFile(IpFile, []byte(currentIp), 0644); err != nil {
-			ErrorLogger.Println(fmt.Sprintf("Failed to write IP file: %v", err))
+			ErrorLogger.Printf("Failed to write IP file: %v", err)
 		}
 		return true
 	}
 
-	DebugLogger.Println(fmt.Sprintf("IP (%s) hasn't changed. No update required.", currentIp))
+	DebugLogger.Printf("IP (%s) hasn't changed. No update required.", currentIp)
 	return false
 }
 
@@ -181,13 +180,13 @@ func doCloudflareRequest(client *http.Client, req *http.Request) (*http.Response
 	}
 
 	if resp.StatusCode == 403 {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("unauthorized - check your Cloudflare token")
 	}
 
 	if resp.StatusCode != 200 {
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("cloudflare API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
@@ -202,12 +201,12 @@ func getZoneId(client *http.Client) (string, error) {
 	}
 	addAuthHeader(req)
 
-	DebugLogger.Println(fmt.Sprintf("Getting Zone ID for '%s'", CloudflareZone))
+	DebugLogger.Printf("Getting Zone ID for '%s'", CloudflareZone)
 	resp, err := doCloudflareRequest(client, req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -224,7 +223,7 @@ func getZoneId(client *http.Client) (string, error) {
 	}
 
 	zoneId := cfResp.Result[0].Id
-	DebugLogger.Println(fmt.Sprintf("Zone ID for '%s' is '%s'", CloudflareZone, zoneId))
+	DebugLogger.Printf("Zone ID for '%s' is '%s'", CloudflareZone, zoneId)
 	return zoneId, nil
 }
 
@@ -236,12 +235,12 @@ func getRecordId(client *http.Client, zoneId, recordName string) (string, error)
 	}
 	addAuthHeader(req)
 
-	DebugLogger.Println(fmt.Sprintf("Getting Record ID for '%s'", recordName))
+	DebugLogger.Printf("Getting Record ID for '%s'", recordName)
 	resp, err := doCloudflareRequest(client, req)
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -254,12 +253,12 @@ func getRecordId(client *http.Client, zoneId, recordName string) (string, error)
 	}
 
 	if len(cfResp.Result) == 0 {
-		DebugLogger.Println(fmt.Sprintf("No Record ID found for '%s'", recordName))
+		DebugLogger.Printf("No Record ID found for '%s'", recordName)
 		return "", nil // Empty string indicates record doesn't exist
 	}
 
 	recordId := cfResp.Result[0].Id
-	DebugLogger.Println(fmt.Sprintf("Record ID for '%s' is '%s'", recordName, recordId))
+	DebugLogger.Printf("Record ID for '%s' is '%s'", recordName, recordId)
 	return recordId, nil
 }
 
@@ -282,12 +281,12 @@ func updateDnsRecord(client *http.Client, zoneId, recordId, recordName, ip strin
 
 	if recordId == "" {
 		// Create new record
-		DebugLogger.Println(fmt.Sprintf("Creating new DNS record for '%s'", recordName))
+		DebugLogger.Printf("Creating new DNS record for '%s'", recordName)
 		url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records", zoneId)
 		method = "POST"
 	} else {
 		// Update existing record
-		DebugLogger.Println(fmt.Sprintf("Updating DNS record for '%s'", recordName))
+		DebugLogger.Printf("Updating DNS record for '%s'", recordName)
 		url = fmt.Sprintf("https://api.cloudflare.com/client/v4/zones/%s/dns_records/%s", zoneId, recordId)
 		method = "PUT"
 	}
@@ -303,9 +302,9 @@ func updateDnsRecord(client *http.Client, zoneId, recordId, recordName, ip strin
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
-	InfoLogger.Println(fmt.Sprintf("DNS Updated (%s -> %s)", recordName, ip))
+	InfoLogger.Printf("DNS Updated (%s -> %s)", recordName, ip)
 	return nil
 }
 
@@ -314,7 +313,7 @@ func updateCloudflare(currentIp string) {
 
 	zoneId, err := getZoneId(client)
 	if err != nil {
-		ErrorLogger.Println(fmt.Sprintf("Failed to get zone ID: %v", err))
+		ErrorLogger.Printf("Failed to get zone ID: %v", err)
 		return
 	}
 
@@ -325,14 +324,14 @@ func updateCloudflare(currentIp string) {
 	for _, cfRecord := range CloudflareRecords {
 		recordId, err := getRecordId(client, zoneId, cfRecord)
 		if err != nil {
-			ErrorLogger.Println(fmt.Sprintf("Failed to get record ID for '%s': %v", cfRecord, err))
+			ErrorLogger.Printf("Failed to get record ID for '%s': %v", cfRecord, err)
 			failureCount++
 			continue
 		}
 
 		err = updateDnsRecord(client, zoneId, recordId, cfRecord, currentIp)
 		if err != nil {
-			ErrorLogger.Println(fmt.Sprintf("Failed to update DNS record '%s': %v", cfRecord, err))
+			ErrorLogger.Printf("Failed to update DNS record '%s': %v", cfRecord, err)
 			failureCount++
 			continue
 		}
@@ -341,26 +340,26 @@ func updateCloudflare(currentIp string) {
 	}
 
 	if failureCount > 0 {
-		ErrorLogger.Println(fmt.Sprintf("DNS update completed with errors: %d succeeded, %d failed", successCount, failureCount))
+		ErrorLogger.Printf("DNS update completed with errors: %d succeeded, %d failed", successCount, failureCount)
 	} else {
-		InfoLogger.Println(fmt.Sprintf("All DNS records updated successfully (%d records)", successCount))
+		InfoLogger.Printf("All DNS records updated successfully (%d records)", successCount)
 	}
 }
 
 func main() {
-	InfoLogger.Println(fmt.Sprintf("Running every %d minutes", IntervalMins))
+	InfoLogger.Printf("Running every %d minutes", IntervalMins)
 
 	// Get initial IP
 	currentIp, err := getIp()
 	if err != nil {
-		ErrorLogger.Fatalln(fmt.Sprintf("Failed to get initial IP: %v", err))
+		ErrorLogger.Fatalf("Failed to get initial IP: %v", err)
 	}
-	InfoLogger.Println(fmt.Sprintf("Current IP: %s", currentIp))
+	InfoLogger.Printf("Current IP: %s", currentIp)
 
 	for {
 		currentIp, err := getIp()
 		if err != nil {
-			ErrorLogger.Println(fmt.Sprintf("Failed to get IP: %v", err))
+			ErrorLogger.Printf("Failed to get IP: %v", err)
 			time.Sleep(time.Duration(IntervalMins) * time.Minute)
 			continue
 		}
